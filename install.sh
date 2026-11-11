@@ -123,15 +123,17 @@ fi
 
 echo -e "${GREEN}✅ VPN-сервер запущен на порту ${VPN_PORT}${NC}"
 
-# --- 10. Создание первого пользователя ---
+# --- 10. Инструкция по созданию пользователя ---
 echo ""
 echo -e "${YELLOW}=== Создание первого пользователя ===${NC}"
-read -p "Введите имя пользователя (или нажмите Enter, чтобы пропустить): " USERNAME
-if [ -n "$USERNAME" ]; then
-  echo "Введите пароль для $USERNAME (дважды):"
-  docker exec -it ocserv ocs user add "$USERNAME"
-  echo -e "${GREEN}✅ Пользователь $USERNAME создан.${NC}"
-fi
+echo "Установка завершена. Чтобы создать пользователя, выполните команду:"
+echo ""
+echo -e "${GREEN}docker exec -it ocserv ocs user add <имя_пользователя>${NC}"
+echo ""
+echo "Например:"
+echo "  docker exec -it ocserv ocs user add my_vpn"
+echo ""
+echo "После ввода команды система запросит пароль (дважды)."
 
 # --- 11. Финальная подсказка ---
 echo ""
