@@ -105,14 +105,18 @@ sleep 5
 if [ -s "${CUSTOM_CONF}.tmp" ]; then
     echo -e "${YELLOW}Добавление правил маршрутизации (no-route)...${NC}"
     
-    # Создаем временный файл с нашим конфигом + базовым содержимым
-    cat "$CUSTOM_CONF" > merged.conf
-    echo "" >> merged.conf
-    echo "# --- Базовые настройки сгенерированные автоматически ---" >> merged.conf
-    cat "${CUSTOM_CONF}.tmp" >> merged.conf
+    # Базовый конфиг (сгенерированный) берем за основу
+    cp "${CUSTOM_CONF}.tmp" ./merged.conf
+    
+    # Добавляем пустую строку и комментарий-разделитель
+    echo "" >> ./merged.conf
+    echo "# --- Пользовательские правила no-route ---" >> ./merged.conf
+    
+    # Дописываем файл с no-route в конец
+    cat "$CUSTOM_CONF" >> ./merged.conf
     
     # Заменяем файл в папке config
-    mv merged.conf "$CUSTOM_CONF"
+    mv ./merged.conf "$CUSTOM_CONF"
     
     # Удаляем временный файл
     rm -f "${CUSTOM_CONF}.tmp"
