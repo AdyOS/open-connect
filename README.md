@@ -7,8 +7,8 @@
 
 ## Установка
 ```bash
-git clone https://github.com/AdyOS/ocserv-oneclick.git
-cd ocserv-oneclick
+git clone https://github.com/AdyOS/open-connect.git
+cd open-connect
 sudo bash install.sh
 ```
 ## Подключение
