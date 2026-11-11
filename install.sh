@@ -15,12 +15,11 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# --- 1.5. Очистка предыдущей установки (если была) ---
+# --- 1.5. Очистка предыдущей установки ---
 echo -e "${YELLOW}Очистка предыдущих запусков...${NC}"
-# Останавливаем и удаляем контейнер, если он есть
 docker rm -f ocserv 2>/dev/null || true
-# Удаляем временные файлы, если остались от прошлых запусков
-rm -f ./config/ocserv.conf.tmp ./merged.conf
+# Удаляем только рабочий конфиг, шаблон не трогаем
+rm -f ./config/ocserv.conf ./merged.conf
 
 # --- 2. Проверка Docker и Compose ---
 if ! command -v docker &> /dev/null; then
@@ -50,16 +49,13 @@ fi
 read -p "Введите IP или домен сервера (для сертификата) [$DETECTED_IP]: " SRV_CN
 SRV_CN=${SRV_CN:-$DETECTED_IP}
 
-# --- 4. Подготовка каталогов в текущей папке ---
-# Скрипт ожидает запуск из корня репозитория (где лежат install.sh и папка config)
+# --- 4. Подготовка каталогов ---
 mkdir -p ./config ./cert ./auth
-
-# Проверяем, что пользовательский конфиг с no-route на месте
 CUSTOM_CONF="./config/ocserv.conf"
-if [ ! -f "$CUSTOM_CONF" ]; then
-  echo -e "${YELLOW}Внимание: файл $CUSTOM_CONF не найден! VPN будет без правил исключения.${NC}"
-  # Создаем пустой, чтобы Docker не ругался на монтирование
-  touch "$CUSTOM_CONF"
+
+# Проверяем, что шаблон с no-route на месте
+if [ ! -f "./config/ocserv.conf.template" ]; then
+  echo -e "${YELLOW}Внимание: файл config/ocserv.conf.template не найден! VPN будет без правил исключения.${NC}"
 fi
 
 # --- 5. Генерация docker-compose.yml ---
@@ -96,39 +92,38 @@ EOF
 echo 'net.ipv4.ip_forward = 1' > /etc/sysctl.d/99-vpn.conf
 sysctl -p /etc/sysctl.d/99-vpn.conf > /dev/null
 
-# --- 7. Первый запуск контейнера (генерация базового конфига и сертификатов) ---
+# --- 7. Первый запуск контейнера (генерация базового конфига) ---
 echo -e "${YELLOW}Запуск контейнера и генерация сертификатов...${NC}"
 
-# Временно скрываем наш кастомный конфиг, чтобы контейнер сгенерировал свой базовый
-if [ -s "$CUSTOM_CONF" ]; then
-    mv "$CUSTOM_CONF" "${CUSTOM_CONF}.tmp"
-    touch "$CUSTOM_CONF"
-fi
-
+# Убеждаемся, что файла нет (только что удалили), чтобы контейнер его создал
 docker compose up -d
 sleep 5
 
+# Проверяем, что базовый конфиг сгенерировался и в нем есть auth
+if [ ! -f "$CUSTOM_CONF" ] || ! grep -q "auth =" "$CUSTOM_CONF"; then
+    echo -e "${RED}Ошибка: контейнер не сгенерировал корректный базовый конфиг! Логи:${NC}"
+    docker logs --tail 30 ocserv
+    exit 1
+fi
+
 # --- 8. Внедрение правил no-route ---
-if [ -s "${CUSTOM_CONF}.tmp" ]; then
+if [ -f "./config/ocserv.conf.template" ]; then
     echo -e "${YELLOW}Добавление правил маршрутизации (no-route)...${NC}"
     
-    # Базовый конфиг (сгенерированный) берем за основу
-    cp "${CUSTOM_CONF}.tmp" ./merged.conf
+    # Базовый конфиг берем за основу
+    cp "$CUSTOM_CONF" ./merged.conf
     
     # Добавляем пустую строку и комментарий-разделитель
     echo "" >> ./merged.conf
     echo "# --- Пользовательские правила no-route ---" >> ./merged.conf
     
-    # Дописываем файл с no-route в конец
-    cat "$CUSTOM_CONF" >> ./merged.conf
+    # Дописываем ВАШ шаблон с no-route в конец
+    cat "./config/ocserv.conf.template" >> ./merged.conf
     
-    # Заменяем файл в папке config
+    # Заменяем рабочий конфиг на слитый
     mv ./merged.conf "$CUSTOM_CONF"
     
-    # Удаляем временный файл
-    rm -f "${CUSTOM_CONF}.tmp"
-    
-    # Перезапускаем контейнер для применения новых правил
+    # Перезапускаем
     echo -e "${YELLOW}Применение новых настроек (перезапуск)...${NC}"
     docker compose down
     docker compose up -d
@@ -161,6 +156,3 @@ echo ""
 echo -e "${GREEN}=== Готово! ===${NC}"
 echo "Сервер: https://${SRV_CN}:${VPN_PORT}"
 echo "Клиент: Cisco Secure Client (iPhone/Android/ПК)"
-echo ""
-echo "Добавить пользователя позже:"
-echo "  docker exec -it ocserv ocs user add <имя>"
