@@ -30,8 +30,18 @@ fi
 read -p "Введите внешний порт для VPN [8443]: " VPN_PORT
 VPN_PORT=${VPN_PORT:-8443}
 
-read -p "Введите IP или домен сервера (для сертификата) [vpn.local]: " SRV_CN
-SRV_CN=${SRV_CN:-vpn.local}
+# Автоматически определяем внешний IP сервера
+echo -n "Определение внешнего IP... "
+DETECTED_IP=$(curl -s -4 ifconfig.me || curl -s -4 icanhazip.com || curl -s -4 api.ipify.org)
+if [ -n "$DETECTED_IP" ]; then
+    echo -e "${GREEN}[$DETECTED_IP]${NC}"
+else
+    echo -e "${YELLOW}[не удалось определить, потребуется ввод вручную]${NC}"
+    DETECTED_IP="vpn.local"
+fi
+
+read -p "Введите IP или домен сервера (для сертификата) [$DETECTED_IP]: " SRV_CN
+SRV_CN=${SRV_CN:-$DETECTED_IP}
 
 # --- 4. Подготовка каталогов в текущей папке ---
 # Скрипт ожидает запуск из корня репозитория (где лежат install.sh и папка config)
