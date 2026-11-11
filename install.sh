@@ -15,6 +15,13 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+# --- 1.5. Очистка предыдущей установки (если была) ---
+echo -e "${YELLOW}Очистка предыдущих запусков...${NC}"
+# Останавливаем и удаляем контейнер, если он есть
+docker rm -f ocserv 2>/dev/null || true
+# Удаляем временные файлы, если остались от прошлых запусков
+rm -f ./config/ocserv.conf.tmp ./merged.conf
+
 # --- 2. Проверка Docker и Compose ---
 if ! command -v docker &> /dev/null; then
   echo -e "${YELLOW}Docker не найден. Установите Docker и повторите.${NC}"
