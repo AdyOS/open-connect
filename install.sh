@@ -33,10 +33,17 @@ VPN_PORT=${VPN_PORT:-8443}
 read -p "Введите IP или домен сервера (для сертификата) [vpn.local]: " SRV_CN
 SRV_CN=${SRV_CN:-vpn.local}
 
-# --- 4. Создание каталогов ---
-WORKDIR="/opt/ocserv-oneclick"
-mkdir -p "$WORKDIR"/{config,cert,auth}
-cd "$WORKDIR"
+# --- 4. Подготовка каталогов в текущей папке ---
+# Скрипт ожидает запуск из корня репозитория (где лежат install.sh и папка config)
+mkdir -p ./config ./cert ./auth
+
+# Проверяем, что пользовательский конфиг с no-route на месте
+CUSTOM_CONF="./config/ocserv.conf"
+if [ ! -f "$CUSTOM_CONF" ]; then
+  echo -e "${YELLOW}Внимание: файл $CUSTOM_CONF не найден! VPN будет без правил исключения.${NC}"
+  # Создаем пустой, чтобы Docker не ругался на монтирование
+  touch "$CUSTOM_CONF"
+fi
 
 # --- 5. Генерация docker-compose.yml ---
 cat > docker-compose.yml <<EOF
@@ -68,23 +75,44 @@ services:
         max-file: "2"
 EOF
 
-# --- 6. Копирование шаблона конфига (если есть) ---
-if [ -f "./ocserv.conf.template" ]; then
-  cp ./ocserv.conf.template ./config/ocserv.conf
-  echo -e "${GREEN}Шаблон конфига скопирован.${NC}"
-else
-  echo -e "${YELLOW}Шаблон ocserv.conf не найден — контейнер сгенерирует базовый.${NC}"
-fi
-
-# --- 7. Включение IP forwarding ---
+# --- 6. Включение IP forwarding ---
 echo 'net.ipv4.ip_forward = 1' > /etc/sysctl.d/99-vpn.conf
 sysctl -p /etc/sysctl.d/99-vpn.conf > /dev/null
 
-# --- 8. Запуск ---
-echo -e "${YELLOW}Запуск контейнера...${NC}"
-docker compose up -d
+# --- 7. Первый запуск контейнера (генерация базового конфига и сертификатов) ---
+echo -e "${YELLOW}Запуск контейнера и генерация сертификатов...${NC}"
 
-sleep 3
+# Временно скрываем наш кастомный конфиг, чтобы контейнер сгенерировал свой базовый
+if [ -s "$CUSTOM_CONF" ]; then
+    mv "$CUSTOM_CONF" "${CUSTOM_CONF}.tmp"
+    touch "$CUSTOM_CONF"
+fi
+
+docker compose up -d
+sleep 5
+
+# --- 8. Внедрение правил no-route ---
+if [ -s "${CUSTOM_CONF}.tmp" ]; then
+    echo -e "${YELLOW}Добавление правил маршрутизации (no-route)...${NC}"
+    
+    # Создаем временный файл с нашим конфигом + базовым содержимым
+    cat "$CUSTOM_CONF" > merged.conf
+    echo "" >> merged.conf
+    echo "# --- Базовые настройки сгенерированные автоматически ---" >> merged.conf
+    cat "${CUSTOM_CONF}.tmp" >> merged.conf
+    
+    # Заменяем файл в папке config
+    mv merged.conf "$CUSTOM_CONF"
+    
+    # Удаляем временный файл
+    rm -f "${CUSTOM_CONF}.tmp"
+    
+    # Перезапускаем контейнер для применения новых правил
+    echo -e "${YELLOW}Применение новых настроек (перезапуск)...${NC}"
+    docker compose down
+    docker compose up -d
+    sleep 3
+fi
 
 # --- 9. Проверка, что запустился ---
 if ! docker ps --format '{{.Names}}' | grep -q '^ocserv$'; then
@@ -98,7 +126,7 @@ echo -e "${GREEN}✅ VPN-сервер запущен на порту ${VPN_PORT}
 # --- 10. Создание первого пользователя ---
 echo ""
 echo -e "${YELLOW}=== Создание первого пользователя ===${NC}"
-read -p "Введите имя пользователя: " USERNAME
+read -p "Введите имя пользователя (или нажмите Enter, чтобы пропустить): " USERNAME
 if [ -n "$USERNAME" ]; then
   echo "Введите пароль для $USERNAME (дважды):"
   docker exec -it ocserv ocs user add "$USERNAME"
